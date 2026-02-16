@@ -172,6 +172,7 @@ impl Menu {
                 let idx = scroll as usize + row as usize;
                 if idx < CITIES.len() {
                     self.settings.city_index = idx as u8;
+                    self.settings.utc_offset = CITIES[idx].utc_offset;
                     self.screen = MenuScreen::Main { scroll: 0 };
                     return MenuAction::Redraw;
                 }

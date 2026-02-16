@@ -11,19 +11,20 @@ pub struct CityEntry {
     pub name: &'static str,
     pub lat: &'static str,
     pub lon: &'static str,
+    pub utc_offset: i8,
 }
 
 pub const CITIES: &[CityEntry] = &[
-    CityEntry { name: "Seoul", lat: "37.5665", lon: "126.9780" },
-    CityEntry { name: "Tokyo", lat: "35.6762", lon: "139.6503" },
-    CityEntry { name: "New York", lat: "40.7128", lon: "-74.0060" },
-    CityEntry { name: "London", lat: "51.5074", lon: "-0.1278" },
-    CityEntry { name: "Paris", lat: "48.8566", lon: "2.3522" },
-    CityEntry { name: "Sydney", lat: "-33.8688", lon: "151.2093" },
-    CityEntry { name: "Beijing", lat: "39.9042", lon: "116.4074" },
-    CityEntry { name: "Singapore", lat: "1.3521", lon: "103.8198" },
-    CityEntry { name: "Dubai", lat: "25.2048", lon: "55.2708" },
-    CityEntry { name: "Los Angeles", lat: "34.0522", lon: "-118.2437" },
+    CityEntry { name: "Seoul",       lat: "37.5665",  lon: "126.9780",  utc_offset: 9 },
+    CityEntry { name: "Tokyo",       lat: "35.6762",  lon: "139.6503",  utc_offset: 9 },
+    CityEntry { name: "New York",    lat: "40.7128",  lon: "-74.0060",  utc_offset: -5 },
+    CityEntry { name: "London",      lat: "51.5074",  lon: "-0.1278",   utc_offset: 0 },
+    CityEntry { name: "Paris",       lat: "48.8566",  lon: "2.3522",    utc_offset: 1 },
+    CityEntry { name: "Sydney",      lat: "-33.8688", lon: "151.2093",  utc_offset: 11 },
+    CityEntry { name: "Beijing",     lat: "39.9042",  lon: "116.4074",  utc_offset: 8 },
+    CityEntry { name: "Singapore",   lat: "1.3521",   lon: "103.8198",  utc_offset: 8 },
+    CityEntry { name: "Dubai",       lat: "25.2048",  lon: "55.2708",   utc_offset: 4 },
+    CityEntry { name: "Los Angeles", lat: "34.0522",  lon: "-118.2437", utc_offset: -8 },
 ];
 
 // Weather fetch intervals (seconds). Time always refreshes every 60s.
