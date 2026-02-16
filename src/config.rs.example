@@ -1,0 +1,6 @@
+// WiFi credentials
+pub const WIFI_SSID: &str = "YOUR_WIFI_SSID";
+pub const WIFI_PASSWORD: &str = "YOUR_WIFI_PASSWORD";
+
+// OpenWeatherMap API
+pub const OPENWEATHER_API_KEY: &str = "YOUR_API_KEY";

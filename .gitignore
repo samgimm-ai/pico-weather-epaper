@@ -1,0 +1,13 @@
+target/
+Cargo.lock
+**/*.rs.bk
+.gdb_history
+
+# Secrets
+src/config.rs
+
+# Firmware binaries (CYW43 WiFi chip - download separately)
+firmware/*.bin
+
+# Built UF2 files
+*.uf2
