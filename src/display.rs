@@ -485,18 +485,18 @@ pub fn render_to_buffer(
 
         if settings.language == 0 {
             let _ = core::write!(hum_s, "습도 {}%", w.humidity);
-            // hum: ~2 Korean(32) + digits×6 + "%"×6 ≈ ~56px, gap 8, arrow 12, wind ~42px
-            let bottom_w = 56 + 8 + 12 + (wind_s.len() as i32) * 6;
+            // hum: ~2 Korean(32) + digits×6 + "%"×6 ≈ ~56px, gap 16, arrow 12, wind ~42px
+            let bottom_w = 56 + 16 + 12 + (wind_s.len() as i32) * 6;
             let bottom_x = 152 + (144 - bottom_w) / 2;
             korean_font::draw_korean_text(fb, hum_s.as_str(), Point::new(bottom_x, 96), &PROFONT_10_POINT);
-            icons::draw_wind_arrow(fb, Point::new(bottom_x + 64, 99));
-            let _ = Text::new(wind_s.as_str(), Point::new(bottom_x + 78, 109), style_10).draw(fb);
+            icons::draw_wind_arrow(fb, Point::new(bottom_x + 72, 99));
+            let _ = Text::new(wind_s.as_str(), Point::new(bottom_x + 86, 109), style_10).draw(fb);
         } else {
             let _ = core::write!(hum_s, "Hum {}%", w.humidity);
-            let bottom_w = (hum_s.len() as i32) * 6 + 8 + 12 + (wind_s.len() as i32) * 6;
+            let bottom_w = (hum_s.len() as i32) * 6 + 16 + 12 + (wind_s.len() as i32) * 6;
             let bottom_x = 152 + (144 - bottom_w) / 2;
             let _ = Text::new(hum_s.as_str(), Point::new(bottom_x, 109), style_10).draw(fb);
-            let hum_end = bottom_x + (hum_s.len() as i32) * 6 + 8;
+            let hum_end = bottom_x + (hum_s.len() as i32) * 6 + 16;
             icons::draw_wind_arrow(fb, Point::new(hum_end, 99));
             let _ = Text::new(wind_s.as_str(), Point::new(hum_end + 14, 109), style_10).draw(fb);
         }
