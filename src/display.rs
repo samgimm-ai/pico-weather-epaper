@@ -201,38 +201,6 @@ impl<'a> Epd<'a> {
         info!("SSD1680 initialized (full mode)");
     }
 
-    /// Prepare for partial refresh mode.
-    /// Call after full refresh — loads partial LUT and enables clock/analog.
-    /// Display must NOT be in deep sleep.
-    pub async fn init_partial(&mut self) {
-        // Load partial LUT (153 bytes to cmd 0x32)
-        self.cmd(0x32).await;
-        self.cs.set_low();
-        self.dc.set_high();
-        let _ = SpiBus::write(&mut self.spi, &PARTIAL_LUT[..153]);
-        self.cs.set_high();
-        self.wait_busy().await;
-
-        // Extra LUT registers
-        self.cmd_data(0x3F, &[PARTIAL_LUT[153]]).await;
-        self.cmd_data(0x03, &[PARTIAL_LUT[154]]).await;
-        self.cmd_data(0x04, &PARTIAL_LUT[155..158]).await;
-        self.cmd_data(0x2C, &[PARTIAL_LUT[158]]).await;
-
-        // Display option register
-        self.cmd_data(0x37, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00]).await;
-
-        // Border for partial mode
-        self.cmd_data(0x3C, &[0x80]).await;
-
-        // Prepare: enable clock + analog
-        self.cmd_data(0x22, &[0xC0]).await;
-        self.cmd(0x20).await;
-        self.wait_busy().await;
-
-        info!("SSD1680 partial mode ready");
-    }
-
     /// Write framebuffer to display and trigger full refresh
     pub async fn update(&mut self, buffer: &[u8]) {
         // Write to Black/White RAM (current frame)
@@ -268,19 +236,47 @@ impl<'a> Epd<'a> {
         info!("Full refresh done");
     }
 
-    /// Partial refresh — writes new frame to RAM 0x24, triggers partial update,
-    /// then copies to RAM 0x26 so next partial has correct "old" reference.
-    /// Requires init_partial() to have been called first.
-    /// Do NOT call sleep() between partial refreshes — RAMs must persist.
+    /// Partial refresh — follows Waveshare reference pattern:
+    /// HW reset (preserves RAM) → reload partial LUT → enable clock/analog →
+    /// write RAM 0x24 → trigger → write RAM 0x26 → sleep.
+    /// Safe to call after deep sleep — HW reset wakes the display and RAM persists.
     pub async fn update_partial(&mut self, buffer: &[u8]) {
-        // Set RAM window and cursor
+        // 1. Brief HW reset — wakes from deep sleep, resets registers, RAM preserved
+        self.hw_reset().await;
+
+        // 2. Load partial LUT (registers reset by HW reset, must reload each time)
+        self.cmd(0x32).await;
+        self.cs.set_low();
+        self.dc.set_high();
+        let _ = SpiBus::write(&mut self.spi, &PARTIAL_LUT[..153]);
+        self.cs.set_high();
+        self.wait_busy().await;
+
+        // Extra LUT registers
+        self.cmd_data(0x3F, &[PARTIAL_LUT[153]]).await;
+        self.cmd_data(0x03, &[PARTIAL_LUT[154]]).await;
+        self.cmd_data(0x04, &PARTIAL_LUT[155..158]).await;
+        self.cmd_data(0x2C, &[PARTIAL_LUT[158]]).await;
+
+        // 3. Display option register
+        self.cmd_data(0x37, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00]).await;
+
+        // Border for partial mode
+        self.cmd_data(0x3C, &[0x80]).await;
+
+        // 4. Enable clock + analog
+        self.cmd_data(0x22, &[0xC0]).await;
+        self.cmd(0x20).await;
+        self.wait_busy().await;
+
+        // 5. Set RAM window and cursor
         self.cmd_data(0x44, &[0x00, 0x10]).await;
         self.cmd_data(0x45, &[0x00, 0x00, 0x27, 0x01]).await;
         self.cmd_data(0x4E, &[0x00]).await;
         self.cmd_data(0x4F, &[0x00, 0x00]).await;
         self.wait_busy().await;
 
-        // Write new frame to RAM 0x24 ONLY
+        // 6. Write new frame to RAM 0x24 only
         self.cmd(0x24).await;
         self.cs.set_low();
         self.dc.set_high();
@@ -289,12 +285,12 @@ impl<'a> Epd<'a> {
         }
         self.cs.set_high();
 
-        // Trigger partial update (compares RAM 0x24 new vs RAM 0x26 old)
+        // 7. Trigger partial update (compares RAM 0x24 new vs RAM 0x26 old)
         self.cmd_data(0x22, &[0x0F]).await;
         self.cmd(0x20).await;
         self.wait_busy().await;
 
-        // Copy new frame to RAM 0x26 (becomes "old" for next partial refresh)
+        // 8. Copy new frame to RAM 0x26 (becomes "old" for next partial)
         self.cmd_data(0x4E, &[0x00]).await;
         self.cmd_data(0x4F, &[0x00, 0x00]).await;
         self.cmd(0x26).await;

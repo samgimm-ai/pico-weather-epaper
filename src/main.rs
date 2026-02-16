@@ -174,7 +174,7 @@ async fn main(spawner: Spawner) {
 
     display::render_to_buffer(&mut fb, last_time.as_ref(), last_weather.as_ref(), &settings);
     epd.update(fb.buffer()).await;
-    epd.init_partial().await; // prepare for partial refresh (don't sleep)
+    epd.sleep().await;
 
     // ── Main loop ──
     info!("Entering main loop");
@@ -202,34 +202,31 @@ async fn main(spawner: Spawner) {
 
                     // Weather update? (interval_secs / 60 ticks)
                     let weather_ticks = (settings.interval_secs() / 60).max(1) as u32;
-                    let full_update = minute_counter >= weather_ticks;
+                    let weather_update = minute_counter >= weather_ticks;
 
-                    if full_update {
+                    if weather_update {
                         minute_counter = 0;
                         let city = settings.city();
                         last_weather =
                             weather::get_weather(stack, city.lat, city.lon).await.ok();
+                    }
 
-                        display::render_to_buffer(
-                            &mut fb,
-                            last_time.as_ref(),
-                            last_weather.as_ref(),
-                            &settings,
-                        );
+                    display::render_to_buffer(
+                        &mut fb,
+                        last_time.as_ref(),
+                        last_weather.as_ref(),
+                        &settings,
+                    );
+
+                    // Full refresh every 5 min (or on weather update) to clear ghosting
+                    if weather_update || minute_counter % 5 == 0 {
                         epd.init().await;
                         epd.update(fb.buffer()).await;
-                        epd.init_partial().await; // ready for next partial
                     } else {
-                        // Partial refresh — time changed
-                        display::render_to_buffer(
-                            &mut fb,
-                            last_time.as_ref(),
-                            last_weather.as_ref(),
-                            &settings,
-                        );
                         epd.update_partial(fb.buffer()).await;
-                        // No sleep — stay in partial mode, RAMs must persist
                     }
+
+                    epd.sleep().await;
                 }
                 Either::Second(point) => {
                     // Touch event — check gear area
@@ -276,7 +273,7 @@ async fn main(spawner: Spawner) {
                     );
                     epd.init().await;
                     epd.update(fb.buffer()).await;
-                    epd.init_partial().await; // ready for partial
+                    epd.sleep().await;
 
                     in_menu = false;
                 }
