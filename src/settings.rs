@@ -5,7 +5,24 @@ use embassy_rp::peripherals::FLASH;
 pub const FLASH_SIZE: usize = 2 * 1024 * 1024; // 2MB RP2040
 const SETTINGS_OFFSET: u32 = (FLASH_SIZE as u32) - 4096; // 0x1FF000
 const MAGIC: u32 = 0xE1D1_5E77;
-const VERSION: u8 = 1;
+const VERSION: u8 = 2;
+const SETTINGS_SIZE: usize = 32;
+const CRC_DATA_LEN: usize = SETTINGS_SIZE - 4; // CRC covers bytes 0..28
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB8_8320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
+}
 
 pub struct CityEntry {
     pub name: &'static str,
@@ -42,8 +59,12 @@ pub struct Settings {
     pub time_format: u8,     // 0=24h, 1=12h
     pub interval_index: u8,  // INTERVALS array index
     pub display_mode: u8,    // 0=Normal, 1=Inverted
-    _pad: [u8; 24],          // Pad to 32 bytes
+    _pad: [u8; 16],          // Reserved
+    crc32: u32,              // CRC32 over bytes 0..28
 }
+
+// Compile-time check: Settings must be exactly 32 bytes
+const _: () = core::assert!(core::mem::size_of::<Settings>() == SETTINGS_SIZE);
 
 impl Settings {
     pub fn new_default() -> Self {
@@ -57,7 +78,8 @@ impl Settings {
             time_format: 0,
             interval_index: 0,
             display_mode: 0,
-            _pad: [0xFF; 24],
+            _pad: [0xFF; 16],
+            crc32: 0,
         }
     }
 
@@ -84,23 +106,37 @@ impl Settings {
         }
     }
 
-    fn from_bytes(bytes: &[u8; 32]) -> Self {
+    fn from_bytes(bytes: &[u8; SETTINGS_SIZE]) -> Self {
         unsafe { core::ptr::read_unaligned(bytes.as_ptr() as *const Self) }
+    }
+
+    fn update_crc(&mut self) {
+        self.crc32 = 0;
+        let bytes = self.as_bytes();
+        self.crc32 = crc32(&bytes[..CRC_DATA_LEN]);
+    }
+
+    fn crc_valid(&self) -> bool {
+        let bytes = self.as_bytes();
+        crc32(&bytes[..CRC_DATA_LEN]) == self.crc32
     }
 }
 
 pub fn load(flash: &mut Flash<'_, FLASH, flash::Blocking, FLASH_SIZE>) -> Settings {
-    let mut buf = [0u8; 32];
+    let mut buf = [0u8; SETTINGS_SIZE];
     match flash.blocking_read(SETTINGS_OFFSET, &mut buf) {
         Ok(()) => {
             let s = Settings::from_bytes(&buf);
-            if s.magic == MAGIC && s.version == VERSION {
-                info!("Settings loaded from flash");
-                s
-            } else {
+            if s.magic != MAGIC || s.version != VERSION {
                 info!("Settings: invalid magic/version, using defaults");
-                Settings::new_default()
+                return Settings::new_default();
             }
+            if !s.crc_valid() {
+                warn!("Settings: CRC mismatch, using defaults");
+                return Settings::new_default();
+            }
+            info!("Settings loaded from flash");
+            s
         }
         Err(_) => {
             warn!("Settings: flash read error, using defaults");
@@ -110,6 +146,11 @@ pub fn load(flash: &mut Flash<'_, FLASH, flash::Blocking, FLASH_SIZE>) -> Settin
 }
 
 pub fn save(flash: &mut Flash<'_, FLASH, flash::Blocking, FLASH_SIZE>, settings: &Settings) {
+    let mut s = settings.clone();
+    s.magic = MAGIC;
+    s.version = VERSION;
+    s.update_crc();
+
     if flash
         .blocking_erase(SETTINGS_OFFSET, SETTINGS_OFFSET + 4096)
         .is_err()
@@ -120,12 +161,21 @@ pub fn save(flash: &mut Flash<'_, FLASH, flash::Blocking, FLASH_SIZE>, settings:
 
     // Write as a 256-byte page (flash page-aligned)
     let mut page = [0xFF_u8; 256];
-    page[..core::mem::size_of::<Settings>()].copy_from_slice(settings.as_bytes());
+    page[..SETTINGS_SIZE].copy_from_slice(s.as_bytes());
 
     if flash.blocking_write(SETTINGS_OFFSET, &page).is_err() {
         error!("Settings: flash write failed");
         return;
     }
 
-    info!("Settings saved to flash");
+    // Read-back verification
+    let mut verify = [0u8; SETTINGS_SIZE];
+    if flash.blocking_read(SETTINGS_OFFSET, &mut verify).is_ok() {
+        if verify[..SETTINGS_SIZE] != s.as_bytes()[..SETTINGS_SIZE] {
+            error!("Settings: read-back verification failed");
+            return;
+        }
+    }
+
+    info!("Settings saved and verified");
 }
