@@ -117,6 +117,11 @@ pub async fn get_weather(stack: Stack<'_>, lat: &str, lon: &str) -> Result<Weath
 
     info!("Received {} bytes", pos);
 
+    if pos >= response.len() {
+        error!("Response buffer full ({} bytes) — response likely truncated", response.len());
+        return Err(());
+    }
+
     // Find JSON body (after \r\n\r\n)
     let body_start = find_body_start(&response[..pos]).ok_or_else(|| {
         error!("HTTP header end not found");
