@@ -152,15 +152,24 @@ async fn main(spawner: Spawner) {
     touch.init().await;
 
     // ── WiFi connect + DHCP ──
-    display::render_boot(&mut epd, "Connecting WiFi...").await;
-    wifi::connect(&mut control).await;
-
-    info!("Waiting for DHCP...");
     loop {
-        if stack.is_config_up() {
+        display::render_boot(&mut epd, "Connecting WiFi...").await;
+        if wifi::connect(&mut control).await.is_ok() {
             break;
         }
-        Timer::after(Duration::from_millis(100)).await;
+        display::render_boot(&mut epd, "WiFi failed. Retry in 5min...").await;
+        Timer::after(Duration::from_secs(300)).await;
+    }
+
+    info!("Waiting for DHCP...");
+    let dhcp_ok = embassy_time::with_timeout(Duration::from_secs(30), async {
+        while !stack.is_config_up() {
+            Timer::after(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    if dhcp_ok.is_err() {
+        warn!("DHCP timeout after 30s");
     }
     if let Some(cfg) = stack.config_v4() {
         info!("IP: {}", cfg.address.address());
