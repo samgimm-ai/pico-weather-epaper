@@ -122,6 +122,21 @@ pub async fn get_weather(stack: Stack<'_>, lat: &str, lon: &str) -> Result<Weath
         return Err(());
     }
 
+    // Parse HTTP status code from first line (e.g. "HTTP/1.1 200 OK\r\n")
+    let status_code = parse_status_code(&response[..pos]).ok_or_else(|| {
+        error!("HTTP status line not found");
+    })?;
+
+    if status_code != 200 {
+        match status_code {
+            401 => error!("HTTP 401: Invalid API key"),
+            404 => error!("HTTP 404: City not found"),
+            429 => error!("HTTP 429: Rate limit exceeded"),
+            _ => error!("HTTP error: {}", status_code),
+        }
+        return Err(());
+    }
+
     // Find JSON body (after \r\n\r\n)
     let body_start = find_body_start(&response[..pos]).ok_or_else(|| {
         error!("HTTP header end not found");
@@ -170,6 +185,24 @@ pub async fn get_weather(stack: Stack<'_>, lat: &str, lon: &str) -> Result<Weath
         humidity,
         wind_speed_10x,
     })
+}
+
+/// Parse HTTP status code from response (e.g. "HTTP/1.1 200 OK" → 200)
+fn parse_status_code(data: &[u8]) -> Option<u16> {
+    // Format: "HTTP/1.x SSS ..."
+    if data.len() < 12 || &data[..5] != b"HTTP/" {
+        return None;
+    }
+    // Status code starts at byte 9 (after "HTTP/1.1 ")
+    let code_bytes = &data[9..12];
+    let mut code: u16 = 0;
+    for &b in code_bytes {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        code = code * 10 + (b - b'0') as u16;
+    }
+    Some(code)
 }
 
 /// Find the start of HTTP body (after \r\n\r\n)
