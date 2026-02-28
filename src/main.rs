@@ -181,13 +181,13 @@ async fn main(spawner: Spawner) {
     let city = settings.city();
     let mut last_weather = weather::get_weather(stack, city.lat, city.lon).await.ok();
 
-    display::render_to_buffer(&mut fb, last_time.as_ref(), last_weather.as_ref(), &settings);
+    display::render_to_buffer(&mut fb, last_time.as_ref(), last_weather.as_ref(), &settings, 0);
     epd.update(fb.buffer()).await;
     epd.sleep().await;
 
     // ── Main loop ──
     info!("Entering main loop");
-    let mut minute_counter: u32 = 0;
+    let mut minutes_since_weather: u32 = 0;
     let mut in_menu = false;
     let mut menu = Menu::new(settings.clone());
 
@@ -205,19 +205,23 @@ async fn main(spawner: Spawner) {
             {
                 Either::First(_) => {
                     // 60s tick — always fetch time
-                    minute_counter += 1;
+                    minutes_since_weather += 1;
                     last_time =
                         ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
 
                     // Weather update? (interval_secs / 60 ticks)
                     let weather_ticks = (settings.interval_secs() / 60).max(1) as u32;
-                    let weather_update = minute_counter >= weather_ticks;
+                    let weather_update = minutes_since_weather >= weather_ticks;
 
                     if weather_update {
-                        minute_counter = 0;
                         let city = settings.city();
-                        last_weather =
-                            weather::get_weather(stack, city.lat, city.lon).await.ok();
+                        match weather::get_weather(stack, city.lat, city.lon).await {
+                            Ok(data) => {
+                                last_weather = Some(data);
+                                minutes_since_weather = 0;
+                            }
+                            Err(_) => {} // keep last_weather, counter keeps rising → retry next tick
+                        }
                     }
 
                     display::render_to_buffer(
@@ -225,10 +229,11 @@ async fn main(spawner: Spawner) {
                         last_time.as_ref(),
                         last_weather.as_ref(),
                         &settings,
+                        minutes_since_weather,
                     );
 
                     // Full refresh every 5 min (or on weather update) to clear ghosting
-                    if weather_update || minute_counter % 5 == 0 {
+                    if weather_update || minutes_since_weather % 5 == 0 {
                         epd.init().await;
                         epd.update(fb.buffer()).await;
                     } else {
@@ -269,9 +274,13 @@ async fn main(spawner: Spawner) {
                     last_time =
                         ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
                     let city = settings.city();
-                    last_weather =
-                        weather::get_weather(stack, city.lat, city.lon).await.ok();
-                    minute_counter = 0;
+                    match weather::get_weather(stack, city.lat, city.lon).await {
+                        Ok(data) => {
+                            last_weather = Some(data);
+                            minutes_since_weather = 0;
+                        }
+                        Err(_) => {} // keep last_weather, counter unchanged
+                    }
 
                     // Full refresh with new data
                     display::render_to_buffer(
@@ -279,6 +288,7 @@ async fn main(spawner: Spawner) {
                         last_time.as_ref(),
                         last_weather.as_ref(),
                         &settings,
+                        minutes_since_weather,
                     );
                     epd.init().await;
                     epd.update(fb.buffer()).await;

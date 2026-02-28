@@ -372,6 +372,7 @@ pub fn render_to_buffer(
     time: Option<&DateTime>,
     weather: Option<&WeatherData>,
     settings: &Settings,
+    weather_age_min: u32,
 ) {
     fb.clear();
 
@@ -471,6 +472,20 @@ pub fn render_to_buffer(
             let desc_w = w.description.len() as i32 * 7;
             let desc_x = 152 + (144 - desc_w) / 2;
             let _ = Text::new(w.description.as_str(), Point::new(desc_x, 71), style_12).draw(fb);
+        }
+
+        // Stale indicator — show age when data is older than the refresh interval
+        let interval_min = (settings.interval_secs() / 60).max(1) as u32;
+        if weather_age_min > interval_min {
+            let mut age_s: String<16> = String::new();
+            if weather_age_min >= 60 {
+                let _ = core::write!(age_s, "{}h{}m ago", weather_age_min / 60, weather_age_min % 60);
+            } else {
+                let _ = core::write!(age_s, "{}m ago", weather_age_min);
+            }
+            let age_w = age_s.len() as i32 * 6;
+            let age_x = 152 + (144 - age_w) / 2;
+            let _ = Text::new(age_s.as_str(), Point::new(age_x, 87), style_10).draw(fb);
         }
 
         // Humidity + Wind — centered as a row
