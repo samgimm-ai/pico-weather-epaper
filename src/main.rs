@@ -252,6 +252,30 @@ async fn main(spawner: Spawner) {
                         menu.render(&mut fb);
                         epd.init().await;
                         epd.update(fb.buffer()).await;
+                    } else if point.x > 148 {
+                        // Right panel touch — manual weather refresh
+                        info!("Manual refresh triggered");
+                        last_time =
+                            ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
+                        let city = settings.city();
+                        match weather::get_weather(stack, city.lat, city.lon).await {
+                            Ok(data) => {
+                                last_weather = Some(data);
+                                minutes_since_weather = 0;
+                            }
+                            Err(_) => {}
+                        }
+
+                        display::render_to_buffer(
+                            &mut fb,
+                            last_time.as_ref(),
+                            last_weather.as_ref(),
+                            &settings,
+                            minutes_since_weather,
+                        );
+                        epd.init().await;
+                        epd.update(fb.buffer()).await;
+                        epd.sleep().await;
                     }
                 }
             }
