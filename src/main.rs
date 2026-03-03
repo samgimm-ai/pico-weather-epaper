@@ -55,6 +55,11 @@ fn is_gear_touch(x: u16, y: u16) -> bool {
     x <= 148 && y >= 100
 }
 
+// Upper-left panel touch area — triggers forecast view
+fn is_forecast_touch(x: u16, y: u16) -> bool {
+    x <= 148 && y < 100
+}
+
 // ─── Main ───
 
 #[embassy_executor::main]
@@ -189,10 +194,27 @@ async fn main(spawner: Spawner) {
     info!("Entering main loop");
     let mut minutes_since_weather: u32 = 0;
     let mut in_menu = false;
+    let mut in_forecast = false;
     let mut menu = Menu::new(settings.clone());
 
     loop {
-        if !in_menu {
+        if in_forecast {
+            // ═══ Forecast mode: any tap returns to main ═══
+            let _point = touch.wait_for_touch().await;
+            info!("Exiting forecast view");
+
+            display::render_to_buffer(
+                &mut fb,
+                last_time.as_ref(),
+                last_weather.as_ref(),
+                &settings,
+                minutes_since_weather,
+            );
+            epd.init().await;
+            epd.update(fb.buffer()).await;
+            epd.sleep().await;
+            in_forecast = false;
+        } else if !in_menu {
             // ═══ Normal mode ═══
             // Time: partial refresh every 60s
             // Weather: full refresh every interval_secs (min 1hr)
@@ -243,7 +265,7 @@ async fn main(spawner: Spawner) {
                     epd.sleep().await;
                 }
                 Either::Second(point) => {
-                    // Touch event — check gear area
+                    // Touch event — check zones
                     if is_gear_touch(point.x, point.y) {
                         info!("Gear touched — entering menu");
                         in_menu = true;
@@ -252,30 +274,50 @@ async fn main(spawner: Spawner) {
                         menu.render(&mut fb);
                         epd.init().await;
                         epd.update(fb.buffer()).await;
-                    } else if point.x > 148 {
-                        // Right panel touch — manual weather refresh
-                        info!("Manual refresh triggered");
-                        last_time =
-                            ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
+                    } else if is_forecast_touch(point.x, point.y) {
+                        // Left panel upper area — show 5-day forecast
+                        info!("Forecast touch — fetching forecast");
                         let city = settings.city();
-                        match weather::get_weather(stack, city.lat, city.lon).await {
-                            Ok(data) => {
-                                last_weather = Some(data);
-                                minutes_since_weather = 0;
+                        match weather::get_forecast(
+                            stack,
+                            city.lat,
+                            city.lon,
+                            settings.utc_offset_seconds(),
+                        )
+                        .await
+                        {
+                            Ok(forecast) => {
+                                display::render_forecast(&mut fb, &forecast, &settings);
+                                epd.init().await;
+                                epd.update(fb.buffer()).await;
+                                in_forecast = true;
                             }
-                            Err(_) => {}
+                            Err(_) => {
+                                info!("Forecast fetch failed");
+                            }
                         }
-
-                        display::render_to_buffer(
-                            &mut fb,
-                            last_time.as_ref(),
-                            last_weather.as_ref(),
-                            &settings,
-                            minutes_since_weather,
-                        );
-                        epd.init().await;
-                        epd.update(fb.buffer()).await;
-                        epd.sleep().await;
+                    } else if point.x > 148 {
+                        // Right panel touch — show 24-hour forecast
+                        info!("Today forecast touch — fetching 24h forecast");
+                        let city = settings.city();
+                        match weather::get_today_forecast(
+                            stack,
+                            city.lat,
+                            city.lon,
+                            settings.utc_offset_seconds(),
+                        )
+                        .await
+                        {
+                            Ok(today) => {
+                                display::render_today_forecast(&mut fb, &today, &settings);
+                                epd.init().await;
+                                epd.update(fb.buffer()).await;
+                                in_forecast = true;
+                            }
+                            Err(_) => {
+                                info!("Today forecast fetch failed");
+                            }
+                        }
                     }
                 }
             }

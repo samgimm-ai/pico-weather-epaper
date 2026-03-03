@@ -105,7 +105,7 @@ pub async fn get_time(stack: Stack<'_>, utc_offset_secs: i32) -> Result<DateTime
 }
 
 /// Convert Unix timestamp to DateTime
-fn unix_to_datetime(secs: u32) -> DateTime {
+pub fn unix_to_datetime(secs: u32) -> DateTime {
     let days = secs / 86400;
     let time_of_day = secs % 86400;
     let hour = (time_of_day / 3600) as u8;

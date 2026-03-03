@@ -17,7 +17,7 @@ use crate::icons;
 use crate::korean_font;
 use crate::ntp::DateTime;
 use crate::settings::Settings;
-use crate::weather::WeatherData;
+use crate::weather::{ForecastData, TodayForecast, WeatherData};
 
 // Display dimensions (landscape orientation)
 pub const WIDTH: u32 = 296;
@@ -517,6 +517,194 @@ pub fn render_to_buffer(
         }
     } else {
         let _ = Text::new("No data", Point::new(185, 65), style_12).draw(fb);
+    }
+
+    // Apply display mode inversion
+    if settings.display_mode == 1 {
+        fb.invert();
+    }
+}
+
+/// English weekday abbreviation
+fn weekday_label(weekday: u8) -> &'static str {
+    match weekday {
+        0 => "Sun",
+        1 => "Mon",
+        2 => "Tue",
+        3 => "Wed",
+        4 => "Thu",
+        5 => "Fri",
+        6 => "Sat",
+        _ => "???",
+    }
+}
+
+/// Render 5-day forecast into buffer
+///
+/// Layout (296×128), 5 columns:
+/// ┌──────┬──────┬──────┬──────┬──────┐
+/// │ Mon  │ Tue  │ Wed  │ Thu  │ Fri  │  weekday
+/// │ 3/04 │ 3/05 │ 3/06 │ 3/07 │ 3/08 │  date
+/// │  ☁   │  ☀   │  🌧  │  ☁   │  ☀   │  icon
+/// │  8°  │ 12°  │  5°  │  9°  │ 14°  │  high
+/// │ ──── │ ──── │ ──── │ ──── │ ──── │  separator
+/// │  2°  │  4°  │  0°  │  3°  │  6°  │  low
+/// └──────┴──────┴──────┴──────┴──────┘
+pub fn render_forecast(
+    fb: &mut DisplayBuffer,
+    forecast: &ForecastData,
+    settings: &Settings,
+) {
+    fb.clear();
+
+    let style_12 = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
+    let style_10 = MonoTextStyle::new(&PROFONT_10_POINT, BinaryColor::On);
+    let line_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+
+    // Column layout: 5 cols of ~59px each
+    const COL_STARTS: [i32; 5] = [3, 62, 121, 180, 239];
+    const COL_CENTERS: [i32; 5] = [31, 90, 149, 208, 267];
+    const DIVIDERS: [i32; 4] = [60, 119, 178, 237];
+
+    // Draw column dividers
+    for &dx in &DIVIDERS {
+        let _ = Line::new(Point::new(dx, 4), Point::new(dx, 120))
+            .into_styled(line_style)
+            .draw(fb);
+    }
+
+    for i in 0..forecast.count.min(5) as usize {
+        let day = &forecast.days[i];
+        let cx = COL_CENTERS[i];
+
+        // Weekday name (y=2)
+        if settings.language == 0 {
+            // Korean: single glyph 16px wide, centered
+            let label = korean_font::weekday_korean(day.weekday);
+            let gx = cx - 8;
+            korean_font::draw_korean_text(fb, label, Point::new(gx, 2), &PROFONT_12_POINT);
+        } else {
+            // English: 3 chars × 7 = 21px
+            let label = weekday_label(day.weekday);
+            let lx = cx - 10;
+            let _ = Text::new(label, Point::new(lx, 14), style_12).draw(fb);
+        }
+
+        // Date MM/DD (y=18, 10pt: 5 chars × 6 = 30px)
+        let mut date_s: String<8> = String::new();
+        let _ = core::write!(date_s, "{}/{:02}", day.month, day.day);
+        let dw = date_s.len() as i32 * 6;
+        let dx = cx - dw / 2;
+        let _ = Text::new(date_s.as_str(), Point::new(dx, 28), style_10).draw(fb);
+
+        // Weather icon 32×32 at y=34, centered
+        let icon_x = cx - 16;
+        icons::draw_weather_icon(fb, Point::new(icon_x, 34), day.icon_code.as_str());
+
+        // High temp (y=68, 12pt)
+        let temp_hi = if settings.temp_unit == 0 {
+            day.temp_max
+        } else {
+            (day.temp_max as i32 * 9 / 5 + 32) as i16
+        };
+        let mut hi_s: String<8> = String::new();
+        let _ = core::write!(hi_s, "{}", temp_hi);
+        let hi_w = hi_s.len() as i32 * 7 + 7; // + degree symbol
+        let hi_x = cx - hi_w / 2;
+        let next = Text::new(hi_s.as_str(), Point::new(hi_x, 82), style_12)
+            .draw(fb)
+            .unwrap_or(Point::new(hi_x + hi_s.len() as i32 * 7, 82));
+        icons::draw_degree_symbol(fb, Point::new(next.x + 1, 70));
+
+        // Separator line at y=86
+        let _ = Line::new(
+            Point::new(COL_STARTS[i] + 6, 88),
+            Point::new(COL_STARTS[i] + 50, 88),
+        )
+        .into_styled(line_style)
+        .draw(fb);
+
+        // Low temp (y=90, 10pt)
+        let temp_lo = if settings.temp_unit == 0 {
+            day.temp_min
+        } else {
+            (day.temp_min as i32 * 9 / 5 + 32) as i16
+        };
+        let mut lo_s: String<8> = String::new();
+        let _ = core::write!(lo_s, "{}", temp_lo);
+        let lo_w = lo_s.len() as i32 * 6 + 7; // + degree symbol
+        let lo_x = cx - lo_w / 2;
+        let next = Text::new(lo_s.as_str(), Point::new(lo_x, 103), style_10)
+            .draw(fb)
+            .unwrap_or(Point::new(lo_x + lo_s.len() as i32 * 6, 103));
+        icons::draw_degree_symbol(fb, Point::new(next.x + 1, 92));
+    }
+
+    // Apply display mode inversion
+    if settings.display_mode == 1 {
+        fb.invert();
+    }
+}
+
+/// Render 24-hour forecast (8 × 3-hour entries) into buffer
+///
+/// Layout (296×128), 8 columns of 37px each:
+/// ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+/// │15:00│18:00│21:00│00:00│03:00│06:00│09:00│12:00│  hour
+/// │  ☁  │  ☀  │  🌙 │  ☁  │  🌧 │  ☁  │  ☀  │  ☀  │  icon
+/// │  8° │ 12° │  5° │  3° │  2° │  4° │  7° │ 11° │  temp
+/// └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+pub fn render_today_forecast(
+    fb: &mut DisplayBuffer,
+    today: &TodayForecast,
+    settings: &Settings,
+) {
+    fb.clear();
+
+    let style_12 = MonoTextStyle::new(&PROFONT_12_POINT, BinaryColor::On);
+    let style_10 = MonoTextStyle::new(&PROFONT_10_POINT, BinaryColor::On);
+    let line_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
+
+    // 8 columns, 37px each (296/8=37)
+    const COL_CENTERS: [i32; 8] = [18, 55, 92, 129, 166, 203, 240, 277];
+    const DIVIDERS: [i32; 7] = [37, 74, 111, 148, 185, 222, 259];
+
+    // Draw column dividers
+    for &dx in &DIVIDERS[..today.count.min(8).saturating_sub(1) as usize] {
+        let _ = Line::new(Point::new(dx, 4), Point::new(dx, 120))
+            .into_styled(line_style)
+            .draw(fb);
+    }
+
+    for i in 0..today.count.min(8) as usize {
+        let entry = &today.entries[i];
+        let cx = COL_CENTERS[i];
+
+        // Hour label "HH:00" (10pt: 5 chars × 6 = 30px, centered)
+        let mut hour_s: String<8> = String::new();
+        let _ = core::write!(hour_s, "{:02}:00", entry.hour);
+        let hw = hour_s.len() as i32 * 6;
+        let hx = cx - hw / 2;
+        let _ = Text::new(hour_s.as_str(), Point::new(hx, 16), style_10).draw(fb);
+
+        // Weather icon 32×32 at y=22, centered
+        let icon_x = cx - 16;
+        icons::draw_weather_icon(fb, Point::new(icon_x, 22), entry.icon_code.as_str());
+
+        // Temperature (12pt) + degree symbol, centered
+        let temp = if settings.temp_unit == 0 {
+            entry.temp
+        } else {
+            (entry.temp as i32 * 9 / 5 + 32) as i16
+        };
+        let mut temp_s: String<8> = String::new();
+        let _ = core::write!(temp_s, "{}", temp);
+        let tw = temp_s.len() as i32 * 7 + 7; // + degree symbol
+        let tx = cx - tw / 2;
+        let next = Text::new(temp_s.as_str(), Point::new(tx, 76), style_12)
+            .draw(fb)
+            .unwrap_or(Point::new(tx + temp_s.len() as i32 * 7, 76));
+        icons::draw_degree_symbol(fb, Point::new(next.x + 1, 64));
     }
 
     // Apply display mode inversion
