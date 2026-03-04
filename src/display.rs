@@ -474,6 +474,37 @@ pub fn render_to_buffer(
             let _ = Text::new(w.description.as_str(), Point::new(desc_x, 71), style_12).draw(fb);
         }
 
+        // High/Low temperature — centered below description
+        {
+            let lo = if settings.temp_unit == 0 {
+                w.temp_min
+            } else {
+                (w.temp_min as i32 * 9 / 5 + 32) as i16
+            };
+            let hi = if settings.temp_unit == 0 {
+                w.temp_max
+            } else {
+                (w.temp_max as i32 * 9 / 5 + 32) as i16
+            };
+            // "L:-3" + degree + "  H:11" + degree → use draw_degree_symbol for ° signs
+            let mut lo_s: String<8> = String::new();
+            let _ = core::write!(lo_s, "L:{}", lo);
+            let mut hi_s: String<8> = String::new();
+            let _ = core::write!(hi_s, "H:{}", hi);
+            // Total width: lo_s×6 + degree(7) + gap(8) + hi_s×6 + degree(7)
+            let total_w = lo_s.len() as i32 * 6 + 7 + 8 + hi_s.len() as i32 * 6 + 7;
+            let start_x = 152 + (144 - total_w) / 2;
+            let next = Text::new(lo_s.as_str(), Point::new(start_x, 90), style_10)
+                .draw(fb)
+                .unwrap_or(Point::new(start_x + lo_s.len() as i32 * 6, 90));
+            icons::draw_degree_symbol(fb, Point::new(next.x + 1, 79));
+            let hi_x = next.x + 15;
+            let next = Text::new(hi_s.as_str(), Point::new(hi_x, 90), style_10)
+                .draw(fb)
+                .unwrap_or(Point::new(hi_x + hi_s.len() as i32 * 6, 90));
+            icons::draw_degree_symbol(fb, Point::new(next.x + 1, 79));
+        }
+
         // Stale indicator — show age when data is older than the refresh interval
         let interval_min = (settings.interval_secs() / 60).max(1) as u32;
         if weather_age_min > interval_min {
@@ -485,7 +516,7 @@ pub fn render_to_buffer(
             }
             let age_w = age_s.len() as i32 * 6;
             let age_x = 152 + (144 - age_w) / 2;
-            let _ = Text::new(age_s.as_str(), Point::new(age_x, 87), style_10).draw(fb);
+            let _ = Text::new(age_s.as_str(), Point::new(age_x, 99), style_10).draw(fb);
         }
 
         // Humidity + Wind — centered as a row

@@ -11,6 +11,10 @@ use serde::Deserialize;
 pub struct WeatherData {
     /// Temperature as integer (rounded from float)
     pub temp_int: i16,
+    /// Daily low temperature (rounded)
+    pub temp_min: i16,
+    /// Daily high temperature (rounded)
+    pub temp_max: i16,
     /// Weather main description (e.g. "Clear", "Clouds", "Rain")
     pub description: String<32>,
     /// Icon code from API (e.g. "01d", "02n", "10d")
@@ -39,6 +43,8 @@ struct WeatherEntry<'a> {
 #[derive(Deserialize)]
 struct MainEntry {
     temp: f32,
+    temp_min: f32,
+    temp_max: f32,
     humidity: u8,
 }
 
@@ -163,6 +169,18 @@ pub async fn get_weather(stack: Stack<'_>, lat: &str, lon: &str) -> Result<Weath
         (resp.main.temp - 0.5) as i16
     };
 
+    let temp_min = if resp.main.temp_min >= 0.0 {
+        (resp.main.temp_min + 0.5) as i16
+    } else {
+        (resp.main.temp_min - 0.5) as i16
+    };
+
+    let temp_max = if resp.main.temp_max >= 0.0 {
+        (resp.main.temp_max + 0.5) as i16
+    } else {
+        (resp.main.temp_max - 0.5) as i16
+    };
+
     let humidity = resp.main.humidity;
 
     // Store wind speed as integer × 10 to avoid f32 formatting
@@ -180,6 +198,8 @@ pub async fn get_weather(stack: Stack<'_>, lat: &str, lon: &str) -> Result<Weath
 
     Ok(WeatherData {
         temp_int,
+        temp_min,
+        temp_max,
         description,
         icon_code,
         humidity,
