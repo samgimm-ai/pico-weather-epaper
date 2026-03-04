@@ -199,9 +199,24 @@ async fn main(spawner: Spawner) {
 
     loop {
         if in_forecast {
-            // ═══ Forecast mode: any tap returns to main ═══
-            let _point = touch.wait_for_touch().await;
+            // ═══ Forecast mode: tap or 60s timeout returns to main ═══
+            let _ = select(
+                Timer::after(Duration::from_secs(60)),
+                touch.wait_for_touch(),
+            )
+            .await;
             info!("Exiting forecast view");
+
+            // Refresh data before returning to main screen
+            last_time = ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
+            let city = settings.city();
+            match weather::get_weather(stack, city.lat, city.lon).await {
+                Ok(data) => {
+                    last_weather = Some(data);
+                    minutes_since_weather = 0;
+                }
+                Err(_) => {}
+            }
 
             display::render_to_buffer(
                 &mut fb,
