@@ -19,7 +19,8 @@ pub fn draw_weather_icon<D: DrawTarget<Color = BinaryColor>>(
     match code {
         "01" => draw_sun(display, pos),
         "02" => draw_partial_cloud(display, pos),
-        "03" | "04" => draw_cloud(display, pos),
+        "03" => draw_cloud(display, pos),
+        "04" => draw_overcast(display, pos),
         "09" | "10" => draw_rain(display, pos),
         "11" => draw_thunder(display, pos),
         "13" => draw_snow(display, pos),
@@ -62,8 +63,26 @@ fn draw_cloud_shape<D: DrawTarget<Color = BinaryColor>>(d: &mut D, p: Point) {
         .draw(d);
 }
 
+/// Draw outline-only cloud shape (stroke, no fill)
+fn draw_cloud_outline<D: DrawTarget<Color = BinaryColor>>(d: &mut D, p: Point) {
+    let style = PrimitiveStyle::with_stroke(ON, 2);
+    let _ = Circle::new(p + Point::new(4, 10), 14).into_styled(style).draw(d);
+    let _ = Circle::new(p + Point::new(10, 4), 16).into_styled(style).draw(d);
+    let _ = Circle::new(p + Point::new(18, 8), 14).into_styled(style).draw(d);
+    let _ = Line::new(p + Point::new(5, 23), p + Point::new(27, 23))
+        .into_styled(style)
+        .draw(d);
+}
+
 fn draw_cloud<D: DrawTarget<Color = BinaryColor>>(d: &mut D, p: Point) {
-    draw_cloud_shape(d, p);
+    draw_cloud_outline(d, p);
+}
+
+fn draw_overcast<D: DrawTarget<Color = BinaryColor>>(d: &mut D, p: Point) {
+    // Small cloud behind (upper-right)
+    draw_cloud_outline(d, p + Point::new(6, -2));
+    // Main cloud in front (lower-left)
+    draw_cloud_outline(d, p + Point::new(-2, 6));
 }
 
 fn draw_partial_cloud<D: DrawTarget<Color = BinaryColor>>(d: &mut D, p: Point) {
