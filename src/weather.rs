@@ -256,6 +256,10 @@ impl HourlyEntry {
 pub struct TodayForecast {
     pub entries: [HourlyEntry; 8],
     pub count: u8,
+    /// Aggregated daily low from all forecast entries for today
+    pub today_min: i16,
+    /// Aggregated daily high from all forecast entries for today
+    pub today_max: i16,
 }
 
 /// Fetch 24-hour forecast (next 8 × 3-hour entries) from OpenWeatherMap
@@ -388,13 +392,12 @@ fn parse_today(json: &[u8], utc_offset_secs: i32) -> Result<TodayForecast, ()> {
         HourlyEntry::empty(), HourlyEntry::empty(),
     ];
     let mut count: u8 = 0;
+    let mut today_min: i16 = i16::MAX;
+    let mut today_max: i16 = i16::MIN;
+    let mut today_day: Option<u32> = None;
 
     let mut cursor = arr_start + 1;
     loop {
-        if count >= 8 {
-            break;
-        }
-
         let obj_start = match find_bytes(json, b"{", cursor) {
             Some(p) if p < arr_end => p,
             _ => break,
@@ -447,22 +450,56 @@ fn parse_today(json: &[u8], utc_offset_secs: i32) -> Result<TodayForecast, ()> {
             None => break,
         };
 
-        // Compute local hour from dt
+        // Compute local time from dt
         let local_secs = dt.wrapping_add(utc_offset_secs as u32);
-        let dt_info = crate::ntp::unix_to_datetime(local_secs);
+        let day_number = local_secs / 86400;
 
-        let idx = count as usize;
-        entries[idx].hour = dt_info.hour;
-        entries[idx].temp = temp;
-        let icon_str = core::str::from_utf8(icon_bytes).unwrap_or("03d");
-        let _ = entries[idx].icon_code.push_str(icon_str);
+        // Determine today's day_number from the first entry
+        // Subtract ~3h since forecast entries start in the near future
+        if today_day.is_none() {
+            let approx_now = dt.wrapping_sub(10800).wrapping_add(utc_offset_secs as u32);
+            today_day = Some(approx_now / 86400);
+        }
 
-        count += 1;
+        // Aggregate min/max for today's date
+        if Some(day_number) == today_day {
+            if temp < today_min {
+                today_min = temp;
+            }
+            if temp > today_max {
+                today_max = temp;
+            }
+        }
+
+        // Collect first 8 entries for hourly view
+        if count < 8 {
+            let dt_info = crate::ntp::unix_to_datetime(local_secs);
+            let idx = count as usize;
+            entries[idx].hour = dt_info.hour;
+            entries[idx].temp = temp;
+            let icon_str = core::str::from_utf8(icon_bytes).unwrap_or("03d");
+            let _ = entries[idx].icon_code.push_str(icon_str);
+            count += 1;
+        }
+
+        // Stop once we've collected 8 entries and moved past today
+        if count >= 8 && today_day.is_some() && day_number > today_day.unwrap() {
+            break;
+        }
+
         cursor = after_icon;
     }
 
-    info!("Today forecast parsed: {} entries", count);
-    Ok(TodayForecast { entries, count })
+    // Fallback if no today entries found
+    if today_min == i16::MAX {
+        today_min = 0;
+    }
+    if today_max == i16::MIN {
+        today_max = 0;
+    }
+
+    info!("Today forecast parsed: {} entries, today L:{} H:{}", count, today_min, today_max);
+    Ok(TodayForecast { entries, count, today_min, today_max })
 }
 
 // ═══ 5-Day Forecast ═══

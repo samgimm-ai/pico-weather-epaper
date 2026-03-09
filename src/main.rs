@@ -185,6 +185,13 @@ async fn main(spawner: Spawner) {
     let mut last_time = ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
     let city = settings.city();
     let mut last_weather = weather::get_weather(stack, city.lat, city.lon).await.ok();
+    // Override temp_min/temp_max with forecast-derived values (current weather API values converge near midnight)
+    if let Ok(today) = weather::get_today_forecast(stack, city.lat, city.lon, settings.utc_offset_seconds()).await {
+        if let Some(ref mut w) = last_weather {
+            w.temp_min = w.temp_min.min(today.today_min);
+            w.temp_max = w.temp_max.max(today.today_max);
+        }
+    }
 
     display::render_to_buffer(&mut fb, last_time.as_ref(), last_weather.as_ref(), &settings, 0);
     epd.update(fb.buffer()).await;
@@ -211,7 +218,11 @@ async fn main(spawner: Spawner) {
             last_time = ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
             let city = settings.city();
             match weather::get_weather(stack, city.lat, city.lon).await {
-                Ok(data) => {
+                Ok(mut data) => {
+                    if let Ok(today) = weather::get_today_forecast(stack, city.lat, city.lon, settings.utc_offset_seconds()).await {
+                        data.temp_min = data.temp_min.min(today.today_min);
+                        data.temp_max = data.temp_max.max(today.today_max);
+                    }
                     last_weather = Some(data);
                     minutes_since_weather = 0;
                 }
@@ -253,7 +264,11 @@ async fn main(spawner: Spawner) {
                     if weather_update {
                         let city = settings.city();
                         match weather::get_weather(stack, city.lat, city.lon).await {
-                            Ok(data) => {
+                            Ok(mut data) => {
+                                if let Ok(today) = weather::get_today_forecast(stack, city.lat, city.lon, settings.utc_offset_seconds()).await {
+                                    data.temp_min = data.temp_min.min(today.today_min);
+                                    data.temp_max = data.temp_max.max(today.today_max);
+                                }
                                 last_weather = Some(data);
                                 minutes_since_weather = 0;
                             }
@@ -356,7 +371,11 @@ async fn main(spawner: Spawner) {
                         ntp::get_time(stack, settings.utc_offset_seconds()).await.ok();
                     let city = settings.city();
                     match weather::get_weather(stack, city.lat, city.lon).await {
-                        Ok(data) => {
+                        Ok(mut data) => {
+                            if let Ok(today) = weather::get_today_forecast(stack, city.lat, city.lon, settings.utc_offset_seconds()).await {
+                                data.temp_min = data.temp_min.min(today.today_min);
+                                data.temp_max = data.temp_max.max(today.today_max);
+                            }
                             last_weather = Some(data);
                             minutes_since_weather = 0;
                         }
